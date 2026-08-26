@@ -25,7 +25,10 @@ Compare Q-Learning policy and state values with Monte Carlo results for the give
 
 ## Q LEARNING FUNCTION
 
-```py
+```
+import numpy as np
+from tqdm import tqdm
+
 def q_learning(env,
                gamma=1.0,
                init_alpha=0.5,
@@ -35,74 +38,115 @@ def q_learning(env,
                min_epsilon=0.1,
                epsilon_decay_ratio=0.9,
                n_episodes=3000):
-
+    
     nS, nA = env.observation_space.n, env.action_space.n
-
     pi_track = []
-
     Q = np.zeros((nS, nA), dtype=np.float64)
     Q_track = np.zeros((n_episodes, nS, nA), dtype=np.float64)
 
-    # epsilon-greedy action selection
+    # Epsilon-greedy action selection
     select_action = lambda state, Q, epsilon: (
-        np.argmax(Q[state])
-        if np.random.random() > epsilon
+        np.argmax(Q[state]) if np.random.random() > epsilon 
         else np.random.randint(len(Q[state]))
     )
 
-    # decay schedules
-    alphas = decay_schedule(
-        init_alpha,
-        min_alpha,
-        alpha_decay_ratio,
-        n_episodes
-    )
+    # Decay schedules for learning rate and exploration rate
+    alphas = decay_schedule(init_alpha, min_alpha, alpha_decay_ratio, n_episodes)
+    epsilons = decay_schedule(init_epsilon, min_epsilon, epsilon_decay_ratio, n_episodes)
 
-    epsilons = decay_schedule(
-        init_epsilon,
-        min_epsilon,
-        epsilon_decay_ratio,
-        n_episodes
-    )
-
-    # training loop
     for e in tqdm(range(n_episodes), leave=False):
-
         state, done = env.reset(), False
-
+        
         while not done:
-
-            # choose action
             action = select_action(state, Q, epsilons[e])
-
-            # take action
             next_state, reward, done, _ = env.step(action)
-
-            # TD target
+            
+            # Temporal Difference (TD) target and error calculation
             td_target = reward + gamma * Q[next_state].max() * (not done)
-
-            # TD error
             td_error = td_target - Q[state][action]
-
-            # update Q-table
+            
+            # Q-table update
             Q[state][action] = Q[state][action] + alphas[e] * td_error
-
-            # move to next state
             state = next_state
-
-        # store tracking info
+            
         Q_track[e] = Q
         pi_track.append(np.argmax(Q, axis=1))
-
-    # final value function
+        
     V = np.max(Q, axis=1)
-
-    # final policy
-    pi = lambda s: {
-        s: a for s, a in enumerate(np.argmax(Q, axis=1))
-    }[s]
-
+    pi = lambda s: {s: a for s, a in enumerate(np.argmax(Q, axis=1))}[s]
+    
     return Q, V, pi, Q_track, pi_track
+
+
+Q_qls, V_qls, Q_track_qls = [], [], []
+
+for seed in tqdm(SEEDS, desc='All seeds', leave=True):
+    random.seed(seed)
+    np.random.seed(seed)
+    
+    # Note: If you are using a newer version of Gymnasium, env.seed(seed) might 
+    # throw an error. If so, comment out the line below.
+    env.seed(seed)
+    
+    Q_ql, V_ql, pi_ql, Q_track_ql, pi_track_ql = q_learning(env, gamma=gamma, n_episodes=n_episodes)
+    
+    Q_qls.append(Q_ql)
+    V_qls.append(V_ql)
+    Q_track_qls.append(Q_track_ql)
+
+Q_ql = np.mean(Q_qls, axis=0)
+V_ql = np.mean(V_qls, axis=0)
+Q_track_ql = np.mean(Q_track_qls, axis=0)
+
+del Q_qls
+del V_qls
+del Q_track_qls
+
+print_state_value_function(V_ql, P, n_cols=n_cols, 
+                           prec=svf_prec, title='State-value function found by Q-learning:')
+
+print_state_value_function(optimal_V, P, n_cols=n_cols, 
+                           prec=svf_prec, title='Optimal state-value function:')
+
+print_state_value_function(V_ql - optimal_V, P, n_cols=n_cols, 
+                           prec=err_prec, title='State-value function errors:')
+
+print('State-value function RMSE: {}'.format(rmse(V_ql, optimal_V)))
+print()
+
+print_action_value_function(Q_ql, 
+                            optimal_Q, 
+                            action_symbols=action_symbols, 
+                            prec=avf_prec, 
+                            title='Q-learning action-value function:')
+
+print('Action-value function RMSE: {}'.format(rmse(Q_ql, optimal_Q)))
+print()
+
+print_policy(pi_ql, P, action_symbols=action_symbols, n_cols=n_cols)
+
+success_rate_ql, mean_return_ql, mean_regret_ql = get_policy_metrics(
+    env, gamma=gamma, pi=pi_ql, goal_state=goal_state, optimal_Q=optimal_Q)
+
+print('Reaches goal {:.2f}%. Obtains an average return of {:.4f}. Regret of {:.4f}'.format(
+    success_rate_ql, mean_return_ql, mean_regret_ql))
+plot_value_function(
+    'Q-Learning estimates through time vs. true values',
+    np.max(Q_track_ql, axis=2),
+    optimal_V,
+    limit_items=limit_items,
+    limit_value=limit_value,
+    log=False
+)
+
+plot_value_function(
+    'Q-Learning estimates through time vs. true values',
+    np.max(Q_track_ql, axis=2),
+    optimal_V,
+    limit_items=limit_items,
+    limit_value=limit_value,
+    log=False
+)
 ```
 
 ## OUTPUT:
